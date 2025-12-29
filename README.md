@@ -9,8 +9,33 @@ This project provides:
 2. **Python Client** - Production-ready API client with organic request patterns
 3. **Polling Scheduler** - Human-like request timing to avoid detection
 4. **Database Schema** - PostgreSQL schema for storing PGA data and game state
+5. **Sync Jobs** - Automated data synchronization pipeline
+6. **Job Runners** - Scheduled tasks for weekly, daily, and live polling
 
 ## Quick Start
+
+### Initial Setup
+
+1. **Set up environment**:
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your PGA_TOUR_API_KEY and DATABASE_URL
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Run database migrations**:
+   ```bash
+   psql $DATABASE_URL < database/migrations/001_initial_schema.sql
+   ```
+
+4. **Run initial sync**:
+   ```bash
+   python examples/quickstart.py
+   ```
 
 ### Using the Python Client
 
@@ -29,6 +54,21 @@ try:
     players = client.get_players()
 finally:
     client.close()
+```
+
+### Running Sync Jobs
+
+```python
+from services.sync import sync_players, sync_schedule, sync_results
+
+# Sync players
+result = sync_players(tour_code="R", active_only=True)
+
+# Sync tournament schedule
+result = sync_schedule(tour_code="R", year="2025")
+
+# Sync tournament results with earnings
+result = sync_results(tournament_id="R2024016", include_earnings=True, year=2024)
 ```
 
 ### Direct GraphQL Queries
@@ -59,28 +99,52 @@ query {
 ## Directory Structure
 
 ```
-pga/
+oad-data-service/
 ├── README.md                 # This file
-├── .env                      # API key (git-ignored)
+├── CLAUDE.md                 # Project context for AI assistance
+├── config.py                 # Configuration management
+├── .env                      # Environment variables (git-ignored)
 ├── .env.example              # Example environment variables
+├── requirements.txt          # Python dependencies
 ├── .gitignore
 │
 ├── services/                 # Python client library
 │   ├── README.md             # Client documentation
 │   ├── __init__.py           # Package exports
 │   ├── pga_client.py         # GraphQL API client
-│   └── scheduler.py          # Jittered polling scheduler
+│   ├── scheduler.py          # Jittered polling scheduler
+│   ├── validation.py         # Data validation utilities
+│   └── sync/                 # Sync modules
+│       ├── __init__.py
+│       ├── players.py        # Player sync
+│       ├── schedule.py       # Schedule sync
+│       ├── results.py        # Results & earnings sync
+│       └── leaderboard.py    # Live leaderboard sync
 │
 ├── database/                 # PostgreSQL schema
 │   ├── README.md             # Database documentation
+│   ├── __init__.py           # Database utilities
+│   ├── db.py                 # Connection pooling & helpers
 │   └── migrations/
 │       └── 001_initial_schema.sql
 │
-├── docs/                     # API documentation
-│   ├── QUICK_START.md        # Getting started guide
-│   ├── API_GOTCHAS.md        # Important quirks
+├── jobs/                     # Automated job runners
+│   ├── README.md             # Job documentation
+│   ├── weekly_sync.py        # Sunday full sync
+│   ├── daily_sync.py         # Mon-Wed field updates
+│   └── live_poller.py        # Thu-Sun live polling
+│
+├── docs/                     # Documentation
+│   ├── project/              # Internal project docs
+│   │   ├── README.md         # Project docs index
+│   │   ├── CODE_REVIEW.md    # Code review findings
+│   │   ├── IMPROVEMENTS.md   # Improvement summary
+│   │   └── QUICK_REFERENCE.md # Quick guide
+│   │
+│   ├── QUICK_START.md        # API getting started guide
+│   ├── API_GOTCHAS.md        # Important API quirks
 │   ├── DATA_SERVICE_PLAN.md  # Data service architecture
-│   ├── queries.md            # All 193 queries
+│   ├── queries.md            # All 193 GraphQL queries
 │   ├── mutations.md          # All 64 mutations
 │   ├── types.md              # All 744 object types
 │   ├── enums.md              # All 94 enum types
@@ -97,8 +161,11 @@ pga/
 │   ├── generate_docs.py      # Generate documentation
 │   └── explore_api.py        # Explore API endpoints
 │
-└── examples/
-    └── queries.py            # Working query examples
+├── examples/
+│   ├── queries.py            # Working query examples
+│   └── quickstart.py         # Initial setup guide
+│
+└── logs/                     # Job logs (created automatically)
 ```
 
 ## Services
@@ -228,6 +295,52 @@ See [services/README.md](services/README.md) for complete documentation.
    python services/pga_client.py
    ```
 
+## Sync Jobs & Automation
+
+### Job Types
+
+1. **Weekly Sync** (`jobs/weekly_sync.py`)
+   - **Schedule**: Sundays at 11:00 PM ET
+   - **Purpose**: Full data refresh
+   - **Operations**: Sync players, schedule, and completed tournament results
+
+2. **Daily Sync** (`jobs/daily_sync.py`)
+   - **Schedule**: Mon-Wed at 6:00 AM ET
+   - **Purpose**: Update tournament fields
+   - **Operations**: Sync upcoming tournament fields, update statuses
+
+3. **Live Poller** (`jobs/live_poller.py`)
+   - **Schedule**: Thu-Sun during tournament hours
+   - **Purpose**: Real-time leaderboard tracking
+   - **Operations**: Adaptive polling based on tournament phase
+
+### Cron Setup
+
+```bash
+# Add to crontab (adjust paths as needed)
+0 23 * * 0 cd /path/to/oad-data-service && python3 jobs/weekly_sync.py
+0 6 * * 1-3 cd /path/to/oad-data-service && python3 jobs/daily_sync.py
+*/5 8-20 * * 4-7 cd /path/to/oad-data-service && python3 jobs/live_poller.py
+```
+
+### Manual Execution
+
+```bash
+# Initial data population
+python examples/quickstart.py
+
+# Run individual sync jobs
+python jobs/weekly_sync.py
+python jobs/daily_sync.py
+python jobs/live_poller.py
+
+# Test individual sync operations
+python services/sync/players.py
+python services/sync/schedule.py
+python services/sync/results.py
+python services/sync/leaderboard.py
+```
+
 ## Scripts
 
 ```bash
@@ -245,5 +358,39 @@ python scripts/introspect.py
 
 # Regenerate documentation
 python scripts/generate_docs.py
+```
+
+## Database Queries
+
+```sql
+-- Check sync status
+SELECT operation, status, records_affected, synced_at
+FROM sync_log
+ORDER BY synced_at DESC
+LIMIT 20;
+
+-- View player count
+SELECT COUNT(*) FROM players;
+
+-- View recent tournaments
+SELECT name, start_date, status, purse
+FROM tournaments
+ORDER BY start_date DESC
+LIMIT 10;
+
+-- Top earners
+SELECT p.display_name, SUM(tr.earnings) as total_earnings
+FROM tournament_results tr
+JOIN players p ON tr.player_id = p.id
+GROUP BY p.id, p.display_name
+ORDER BY total_earnings DESC
+LIMIT 20;
+
+-- Recent leaderboard snapshots
+SELECT t.name, ls.player_id, ls.position, ls.total, ls.snapshot_time
+FROM leaderboard_snapshots ls
+JOIN tournaments t ON ls.tournament_id = t.id
+ORDER BY ls.snapshot_time DESC
+LIMIT 50;
 ```
 
