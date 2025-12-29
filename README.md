@@ -8,6 +8,7 @@ This project provides:
 1. **API Documentation** - Complete GraphQL schema documentation generated via introspection
 2. **Python Client** - Production-ready API client with organic request patterns
 3. **Polling Scheduler** - Human-like request timing to avoid detection
+4. **Database Schema** - PostgreSQL schema for storing PGA data and game state
 
 ## Quick Start
 
@@ -61,6 +62,7 @@ query {
 pga/
 ├── README.md                 # This file
 ├── .env                      # API key (git-ignored)
+├── .env.example              # Example environment variables
 ├── .gitignore
 │
 ├── services/                 # Python client library
@@ -68,6 +70,11 @@ pga/
 │   ├── __init__.py           # Package exports
 │   ├── pga_client.py         # GraphQL API client
 │   └── scheduler.py          # Jittered polling scheduler
+│
+├── database/                 # PostgreSQL schema
+│   ├── README.md             # Database documentation
+│   └── migrations/
+│       └── 001_initial_schema.sql
 │
 ├── docs/                     # API documentation
 │   ├── QUICK_START.md        # Getting started guide
